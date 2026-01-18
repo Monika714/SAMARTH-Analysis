@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.Python
+
+# macOS
+.DS_Store
+
+# Excel files
+*.xlsx
+*.xls
+
+# Environment
+.env
+venv/
+
+# IDE
+.vscode/
+
+# Streamlit
+.streamlit/
+
+# Data
+*.csv
