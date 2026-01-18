@@ -46,8 +46,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# File path
-FILE_PATH = '/Users/apple/Documents/0A. Monika_GT_Support/SAMARTH Data Analysis/Filtered_Project wise Status (Pass) as on 14.01.2026_copy.xlsx'
 
 def create_abbreviations(names, max_length=35):
 	"""
@@ -105,8 +103,58 @@ def display_chart_with_legend(fig, legend_df, title="📖 Full Names Legend"):
 			st.dataframe(legend_df, use_container_width=True, hide_index=True)
 			
 @st.cache_data
-def load_all_sheets(file_path):
-	"""Load all sheets from Excel file"""
+def load_all_sheets_from_uploaded_file(uploaded_file):
+	"""Load all sheets from uploaded Excel file"""
+	try:
+		excel_file = pd.ExcelFile(uploaded_file)
+		sheets = {}
+		
+		for sheet_name in excel_file.sheet_names:
+			df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+			df.columns = df.columns.str.strip()
+			
+			# Convert numeric columns
+			numeric_cols = ['Project Cost', 'Total Fund Released', 'Total Withdrawal Issued',
+							'Actual Trained', 'Pass', 'Placed', 'In- training', 'Target']
+			
+			for col in numeric_cols:
+				if col in df.columns:
+					df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+					
+			# Calculate percentages
+			if 'Total Fund Released' in df.columns and 'Project Cost' in df.columns:
+				df['Fund Released %'] = np.where(df['Project Cost'] > 0,
+												(df['Total Fund Released'] / df['Project Cost'] * 100), 0)
+				
+			if 'Total Withdrawal Issued' in df.columns and 'Project Cost' in df.columns:
+				df['Withdrawal %'] = np.where(df['Project Cost'] > 0,
+											(df['Total Withdrawal Issued'] / df['Project Cost'] * 100), 0)
+				
+			if 'Pass' in df.columns and 'Actual Trained' in df.columns:
+				df['Pass %'] = np.where(df['Actual Trained'] > 0,
+										(df['Pass'] / df['Actual Trained'] * 100), 0)
+				
+			if 'Placed' in df.columns and 'Actual Trained' in df.columns:
+				df['Placed %'] = np.where(df['Actual Trained'] > 0,
+										(df['Placed'] / df['Actual Trained'] * 100), 0)
+				
+			# Date columns
+			if 'EC Date' in df.columns:
+				df['EC Date'] = pd.to_datetime(df['EC Date'], errors='coerce')
+				
+			# Fill NaN in text columns
+			text_cols = ['Type', 'Status', 'IP Name']
+			for col in text_cols:
+				if col in df.columns:
+					df[col] = df[col].fillna('Unknown')
+					
+			sheets[sheet_name] = df
+			
+		return sheets
+	
+	except Exception as e:
+		st.error(f"Error loading file: {str(e)}")
+		return None
 	try:
 		excel_file = pd.ExcelFile(file_path)
 		sheets = {}
@@ -648,15 +696,35 @@ def main():
 	st.markdown(f"Data as on: **14 January 2026** | Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p IST')}")
 	st.markdown("---")
 	
-	# Load data
-	with st.spinner("Loading SAMARTH project data..."):
-		all_sheets = load_all_sheets(FILE_PATH)
+	# FILE UPLOADER - Add this at the very beginning
+	uploaded_file = st.sidebar.file_uploader(
+		"Upload SAMARTH Excel File",
+		type=['xlsx'],
+		help="Upload the Project-wise Status Excel file to begin analysis"
+	)
+	
+	if uploaded_file is None:
+		st.warning("⚠️ Please upload the SAMARTH project data Excel file from the sidebar to begin analysis")
+		st.info("👈 Use the **'Browse files'** button in the sidebar to upload your Excel file")
+		st.markdown("""
+		### Expected File Format:
+		- Excel file (.xlsx)
+		- Multiple sheets with project data
+		- Main Sheet should contain columns: IP Name, Project Cost, Actual Trained, Pass, Placed, Status, etc.
+		""")
+		st.stop()
+		
+	# Load data from uploaded file
+	with st.spinner("🔄 Loading SAMARTH project data..."):
+		all_sheets = load_all_sheets_from_uploaded_file(uploaded_file)
 		
 	if all_sheets is None:
-		st.error("Failed to load data. Please check the file path.")
+		st.error("❌ Failed to load data. Please check the file format.")
 		return
 	
 	# Sidebar controls
+	st.sidebar.success(f"File loaded successfully!")
+	st.sidebar.markdown("---")
 	st.sidebar.header("Dashboard Controls")
 	
 	# Global Top N filter
@@ -763,7 +831,7 @@ def main():
 		
 		if selected_columns:
 			# Search functionality
-			search_term = st.text_input("Search in data:", "")
+			search_term = st.text_input("🔍 Search in data:", "")
 			
 			df_display = df_to_display[selected_columns].copy()
 			
@@ -801,7 +869,7 @@ def main():
 			st.markdown("---")
 			st.subheader("Export Data")
 			
-			col1, col2, col3 = st.columns(3)
+			col1, col2 = st.columns(2)
 			
 			with col1:
 				csv = df_display.to_csv(index=False).encode('utf-8')
@@ -825,14 +893,6 @@ def main():
 					file_name=f"SAMARTH_{sheet_to_view}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
 					mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 				)
-				
-			with col3:
-				# Summary stats
-				if st.button("Generate Summary Stats"):
-					st.markdown("### Summary Statistics")
-					numeric_cols = df_display.select_dtypes(include=[np.number]).columns
-					if len(numeric_cols) > 0:
-						st.dataframe(df_display[numeric_cols].describe(), use_container_width=True)
 		else:
 			st.warning("Please select at least one column to display")
 			
@@ -863,14 +923,11 @@ def main():
 				'Actual Trained': 'sum'
 			}).reset_index()
 			
-			# Rename columns FIRST
 			spoc_perf.columns = ['SPOC', 'Projects', 'Trained']
-			
-			# Then use nlargest with correct column name
 			spoc_perf = spoc_perf.nlargest(top_n, 'Projects')
 			
 			fig = px.bar(spoc_perf, x='SPOC', y='Projects',
-						title=f"Top {min(top_n, len(spoc_perf))} SPOCs by Project Count",
+						title=f"Top {min(top_n, len(spoc_perf))} SPOCs",
 						color='Trained', color_continuous_scale='Blues',
 						text='Projects')
 			fig.update_layout(xaxis={'tickangle': -45})
@@ -879,42 +936,40 @@ def main():
 			
 	# Key Findings
 	st.markdown("---")
-	st.header("Key Findings & Recommendations")
+	st.header("Key Findings")
 	
 	col1, col2, col3 = st.columns(3)
 	
 	with col1:
-		high_util = len(main_df[(main_df['Fund Released %'] > 86) & (main_df['Withdrawal %'] > 86)])
+		closed_100 = len(main_df[(main_df['Fund Released %'] == 100) & (main_df['Withdrawal %'] == 100)])
 		st.info(f"""
 		**Financial Health**
 		- Total Sanctioned: ₹{main_df['Project Cost'].sum()/1e7:.2f} Cr
 		- Total Released: ₹{main_df['Total Fund Released'].sum()/1e7:.2f} Cr
-		- Projects >86% Released: {high_util:,}
+		- Fully Closed (100%): {closed_100:,}
 		""")
 		
 	with col2:
 		total_trained = main_df['Actual Trained'].sum()
 		total_pass = main_df['Pass'].sum()
 		total_placed = main_df['Placed'].sum()
-		high_pass = len(main_df[main_df['Pass %'] > 90])
 		
 		st.success(f"""
 		**Training Performance**
 		- Total Trained: {int(total_trained):,}
 		- Pass Rate: {(total_pass/total_trained*100) if total_trained > 0 else 0:.1f}%
 		- Placement: {(total_placed/total_trained*100) if total_trained > 0 else 0:.1f}%
-		- High Performers (>90%): {high_pass:,}
 		""")
 		
 	with col3:
 		zero_training = len(main_df[(main_df['Actual Trained'] == 0) & (main_df['In- training'] == 0)])
-		recovery_proj = len(main_df[(main_df['Fund Released %'] < 86) | (main_df['Withdrawal %'] < 86)])
+		recovery_proj = len(main_df[(main_df['Fund Released %'] > 100) | (main_df['Withdrawal %'] > 100)])
 		
 		st.warning(f"""
 		**Action Required**
 		- Zero Training: {zero_training:,}
-		- Recovery Projects: {recovery_proj:,}
-		- Closure Pending: {len(main_df[(main_df['Fund Released %'] > 86) & ~main_df['Status'].str.contains('Closed', case=False, na=False)]):,}
+		- Recovery (>100%): {recovery_proj:,}
+		- Eligible for Closure: {len(main_df[(main_df['Fund Released %'] > 86) & (main_df['Fund Released %'] < 100)]):,}
 		""")
 		
 	# Footer
@@ -922,6 +977,7 @@ def main():
 	st.markdown("""
 	<div style='text-align: center; color: #7f8c8d; padding: 20px;'>
 		<p><strong>SAMARTH - Scheme for Capacity Building in Textile Sector</strong></p>
+		<p>Ministry of MSME | IT & Planning Division | Government of India</p>
 		<p style='font-size: 0.9em;'>Data as on: 14 January 2026 | Powered by Streamlit & Plotly</p>
 	</div>
 	""", unsafe_allow_html=True)
