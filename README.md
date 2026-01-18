@@ -1,6 +1,6 @@
 # SAMARTH Project Analysis Dashboard
 
-Ministry of MSME | IT & Planning Division
+Ministry of Textiles
 
 Comprehensive analytics dashboard for SAMARTH textile projects.
 
